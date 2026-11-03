@@ -15,27 +15,27 @@ Python SDK for real-time eye tracking analysis, cognitive load prediction, and f
 
 Install a release rather than `main`, which moves between releases: add
 `@vX.Y.Z`, the newest tag on the repository's Releases page, to the URLs below
-(for example `git+https://github.com/harmoneyes/HarmonEyesTheia.git@vX.Y.Z`).
+(for example `git+https://github.com/harmoneyes/theia-python.git@vX.Y.Z`).
 
 ```bash
 # Install directly with pip
-pip install git+https://github.com/harmoneyes/HarmonEyesTheia.git
+pip install git+https://github.com/harmoneyes/theia-python.git
 
 # Or add to requirements.txt
-git+https://github.com/harmoneyes/HarmonEyesTheia.git
+git+https://github.com/harmoneyes/theia-python.git
 
 # Or add to pyproject.toml
 [project]
 dependencies = [
-    "harmoneyes-theia @ git+https://github.com/harmoneyes/HarmonEyesTheia.git"
+    "harmoneyes-theia @ git+https://github.com/harmoneyes/theia-python.git"
 ]
 ```
 
 ### Install from Local Clone
 
 ```bash
-git clone https://github.com/harmoneyes/HarmonEyesTheia.git
-cd HarmonEyesTheia
+git clone https://github.com/harmoneyes/theia-python.git
+cd theia-python
 pip install .
 ```
 

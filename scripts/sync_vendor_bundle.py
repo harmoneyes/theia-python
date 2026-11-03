@@ -8,7 +8,7 @@ script unpacks that bundle and replaces the vendored package trees in this repo:
     harmoneyes_theia/        harmoneyes_theia.libs/   (+ .dylibs)
 
 It is the only supported way to refresh the binaries — there is no source here.
-Run it from CI (see .github/workflows/sync-native-sdk.yml) or locally to test a
+theia-native's release CI runs it, in the PR it opens here; run it locally to test a
 bundle before publishing.
 
 Usage:

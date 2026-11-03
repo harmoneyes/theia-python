@@ -37,9 +37,9 @@ video = ["opencv-python>=4.5.0"]
 
 [project.urls]
 Homepage = "https://harmoneyes.com"
-Repository = "https://github.com/harmoneyes/HarmonEyesTheia"
-Documentation = "https://github.com/harmoneyes/HarmonEyesTheia#readme"
-"Bug Tracker" = "https://github.com/harmoneyes/HarmonEyesTheia/issues"
+Repository = "https://github.com/harmoneyes/theia-python"
+Documentation = "https://github.com/harmoneyes/theia-python#readme"
+"Bug Tracker" = "https://github.com/harmoneyes/theia-python/issues"
 
 [build-system]
 requires = ["hatchling"]

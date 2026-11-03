@@ -4,6 +4,19 @@ This release has several breaking changes from earlier releases. Most are
 mechanical to update. This guide covers what changed, what's new, and a
 checklist to work through.
 
+## The SDK has moved
+
+Releases from this one on are published from
+[`harmoneyes/theia-python`](https://github.com/harmoneyes/theia-python);
+[`harmoneyes/HarmonEyesTheia`](https://github.com/harmoneyes/HarmonEyesTheia)
+has the earlier ones. The package and import names are unchanged
+(`harmoneyes-theia`, `import harmoneyes_theia`); change only the URL you
+install from:
+
+```bash
+pip install "harmoneyes-theia @ git+https://github.com/harmoneyes/theia-python.git@vX.Y.Z"
+```
+
 ## Breaking changes
 
 ### 1. Auth: now lease-based, not license-key-based
@@ -167,6 +180,9 @@ names keeps working unmodified:
 
 ## Quick checklist
 
+- [ ] Install from `harmoneyes/theia-python` instead of
+      `harmoneyes/HarmonEyesTheia` (requirements files, `pyproject.toml`,
+      Dockerfiles, CI).
 - [ ] Set your API key on each machine (`THEIA_API_KEY_ID` and
       `THEIA_API_KEY_SECRET`) so the SDK gets and renews its own lease.
 - [ ] Replace any call in "Removed calls" above.

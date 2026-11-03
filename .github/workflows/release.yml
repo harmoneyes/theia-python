@@ -36,4 +36,4 @@ jobs:
           prerelease=()
           if [[ "${tag}" == *-* || "${tag}" == *+* ]]; then prerelease=(--prerelease); fi
           gh release create "${tag}" --target "${SHA}" --title "${tag}" --generate-notes "${prerelease[@]}" \
-            --notes "Install: \`pip install \"harmoneyes-theia @ git+https://github.com/harmoneyes/HarmonEyesTheia.git@${tag}\"\`"
+            --notes "Install: \`pip install \"harmoneyes-theia @ git+https://github.com/harmoneyes/theia-python.git@${tag}\"\`"
