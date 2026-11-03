@@ -336,6 +336,11 @@ distributed but will not function without one.
 - **License Type**: Proprietary / Commercial
 - **Obtaining an API key**: contact sales@harmoneyes.com
 
+The SDK includes third-party software under its own licenses. Their notices
+ship with the package, in `harmoneyes_theia/THIRD_PARTY_NOTICES.txt` and, for
+the webcam's gaze sidecar, `harmoneyes_theia/sidecar/NOTICES.txt` (in this
+repository, under `vendor/harmoneyes_theia/`).
+
 ## Support
 
 For issues, questions, or feature requests, please contact support@harmoneyes.com
