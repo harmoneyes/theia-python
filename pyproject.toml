@@ -3,7 +3,7 @@ name = "harmoneyes-theia"
 # Breaking release: `license_key=` is gone from TheiaSDK's constructor,
 # replaced by `lease_token=` (see README's "Device Lease" section and
 # MIGRATION.md). Bump manually when cutting a new vendored release.
-version = "2.0.0"
+version = "2.2.0"
 description = "HarmonEyes Theia SDK"
 readme = "README.md"
 requires-python = ">=3.12, <3.13"
