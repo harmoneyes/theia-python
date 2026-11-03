@@ -1,0 +1,171 @@
+"""
+HarmonEyes Theia SDK Example: Ganzin Sol
+
+Connects to a Ganzin Sol eye tracker over the network, streams gaze data,
+and prints one line a second with every result: cognitive load,
+fatigue, attention style and mental readiness.
+
+Prerequisites:
+  1. export THEIA_API_KEY_ID=...       # your HarmonEyes API key
+     export THEIA_API_KEY_SECRET=...   (see the README, "Device Lease")
+  2. Ensure the Ganzin Sol device is reachable at the configured IP/port.
+
+Usage:
+  python theia-ganzin-streaming.py
+"""
+
+import csv
+import os
+import sys
+import time
+import uuid
+from datetime import datetime
+
+import harmoneyes_theia
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+GANZIN_IP = "192.168.1.100"
+GANZIN_PORT = 8080
+
+# Duration in seconds to collect data.
+# Fatigue updates every ~120s, so 400s captures at least 3 updates.
+COLLECTION_DURATION = 400
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+COG_LOAD_LABELS = {0: "Low", 1: "Moderate", 2: "High"}
+FATIGUE_LABELS = {0: "Alert", 1: "Somewhat Fatigued", 2: "Fatigued"}
+
+# Output directory for CSV files
+OUTPUT_DIR = "results"
+
+
+def format_cog_load(prediction: int) -> str:
+    """Map a numeric cognitive load prediction to a human-readable label."""
+    return COG_LOAD_LABELS.get(prediction, f"Unknown ({prediction})")
+
+
+def format_fatigue(level: int) -> str:
+    """Map a numeric fatigue level to a human-readable label."""
+    return FATIGUE_LABELS.get(level, f"Unknown ({level})")
+
+
+def save_results_to_csv(results: list[dict], session_id: str) -> str:
+    """Save collected results to a CSV file and return the file path."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"ganzin_session_{timestamp}_{session_id[:8]}.csv"
+    filepath = os.path.join(OUTPUT_DIR, filename)
+
+    fieldnames = ["timestamp", "elapsed_s", "cog_load", "cog_load_label", "fatigue", "fatigue_label"]
+    with open(filepath, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(results)
+
+    print(f"[TheiaSDK] Results saved to {filepath} ({len(results)} rows)")
+    return filepath
+
+
+def results_line(sdk, cog_load: str, fatigue: str) -> str:
+    """Every result on one line. Cognitive load and fatigue are the newest the
+    SDK handed over; attention style and mental readiness are running states,
+    read on the spot."""
+    attention = sdk.get_attention_style()
+    readiness = sdk.get_mental_readiness()
+    return (f"Cognitive load: {cog_load} | Fatigue: {fatigue} | "
+            f"Attention: {attention['label'] if attention else 'not yet'} | "
+            f"Mental readiness: {readiness['label'] if readiness else 'not yet'}")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def main():
+    # Initialize the SDK with the Ganzin Sol platform
+    try:
+        sdk = harmoneyes_theia.TheiaSDK(
+            platform="Ganzin",
+        )
+    except harmoneyes_theia.LeaseVerificationError as e:
+        sys.exit(
+            f"[TheiaSDK] Lease rejected: {e}\n"
+            "Set THEIA_API_KEY_ID and THEIA_API_KEY_SECRET to your HarmonEyes API key "
+            "(see the README, \"Device Lease\")."
+        )
+    sdk.ip = GANZIN_IP
+    sdk.port = GANZIN_PORT
+
+    session_id = str(uuid.uuid4())
+
+    print(f"[TheiaSDK] Starting session {session_id}")
+    sdk.start_new_session(session_uuid=session_id)
+
+    print("[TheiaSDK] Starting data stream")
+    sdk.start_realtime_data()
+
+    results = []
+    # get_cog_load_levels() and get_fatigue_level() hand over each result once,
+    # so keep the newest for the printed line.
+    cog_load_now, fatigue_now = "warming up", "not yet"
+    start_time = time.time()
+    try:
+        while (time.time() - start_time) < COLLECTION_DURATION:
+            elapsed = time.time() - start_time
+            row = {
+                "timestamp": datetime.now().isoformat(),
+                "elapsed_s": round(elapsed, 2),
+                "cog_load": None,
+                "cog_load_label": None,
+                "fatigue": None,
+                "fatigue_label": None,
+            }
+
+            # Cognitive load predictions (updates every 5-second window)
+            try:
+                cog_levels, batch_num, _ = sdk.get_cog_load_levels()
+                if cog_levels:
+                    # levels is keyed by model name (always "general" now —
+                    # the ACE model is the sole cognitive-load predictor).
+                    prediction = next(iter(cog_levels.values()))["prediction"]
+                    row["cog_load"] = prediction
+                    row["cog_load_label"] = format_cog_load(prediction)
+                    cog_load_now = format_cog_load(prediction)
+            except AttributeError:
+                pass  # SDK not ready yet (warmup period)
+
+            # Fatigue predictions (updates every ~120 seconds)
+            try:
+                fatigue, fatigue_batch = sdk.get_fatigue_level()
+                if fatigue:
+                    # keyed by model name; take whichever produced this window.
+                    level = next(iter(fatigue.values()))
+                    row["fatigue"] = level
+                    row["fatigue_label"] = format_fatigue(level)
+                    fatigue_now = format_fatigue(level)
+            except AttributeError:
+                pass  # SDK not ready yet (warmup period)
+
+            print(f"  {results_line(sdk, cog_load_now, fatigue_now)}", flush=True)
+            results.append(row)
+
+            # Poll at 1 Hz
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        print("\n[TheiaSDK] Interrupted by user")
+    finally:
+        print("[TheiaSDK] Stopping session")
+        sdk.stop_processing()
+        if results:
+            save_results_to_csv(results, session_id)
+
+
+if __name__ == "__main__":
+    main()
