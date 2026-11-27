@@ -249,21 +249,19 @@ configuration is needed; to point at a different signing server, set
 
 See [`examples/theia-webcam-streaming.py`](examples/theia-webcam-streaming.py).
 
-### Stasis eye camera
+### Head-mounted camera on one eye
 
-The Stasis head-mounted eye camera has its own platform, `platform="Stasis"`.
-Push one sample for every camera frame, in time order, from the camera's frame
-callback; there is no `start_realtime_data()` call. Its settings assume 60
-frames a second, one eye per camera.
+A head-mounted camera that films one eye and reports where it points has its
+own platform, `platform="Stasis"`. Push one sample for every camera frame, in
+time order, from the camera's frame callback; there is no
+`start_realtime_data()` call. Its settings assume 60 frames a second.
 
-| | In the Stasis eye-coordinates export | In the SDK (`GazeSample`) | Notes |
-|---|---|---|---|
-| **Capture time** | `utc_estimate_ns` | `timestamp_ns` | Required. Nanoseconds since the Unix epoch, in UTC. |
-| **Which eye** | `eye`: `left` or `right` | the `_left_` or `_right_` fields | Required. |
-| **Gaze direction** | `gaze_vector_x`, `_y`, `_z` | `optical_axis_left_x`, `_y`, `_z` | Required. The calibrated gaze, as a unit vector in the camera's frame (+x right, +y **down**, +z forward), as the camera reports it; the SDK converts it. |
-| **Gaze valid** | `gaze_valid` | leave the gaze at `(0, 0, 0)` when there is none | Required. Still send the frame: it tells the SDK the eye was lost then. |
-| **Pupil found** | `pupil_valid` | `left_eye_status`: `2` found, `0` lost | Needed for reliable blinks. |
-| **Pupil diameter** | not in the export | `pupil_diameter_left`, in millimetres | Optional. |
+| `GazeSample` field | Set it to | |
+|---|---|---|
+| `timestamp_ns` | the frame's capture time, in nanoseconds since the Unix epoch (UTC) | Required. |
+| `optical_axis_left_x`, `_y`, `_z` | the eye's calibrated gaze direction, as a unit vector in the camera's frame: +x right, +y **down**, +z forward. The SDK converts it. | Required. Leave it at `(0, 0, 0)` when the frame has no gaze, and still send the frame: it tells the SDK the eye was lost then. |
+| `left_eye_status` | `2` when the camera found the pupil, `0` when it lost it | Needed for reliable blinks and for eye strain. |
+| `pupil_diameter_left` | the pupil diameter, in millimetres | Optional. |
 
 ```python
 import harmoneyes_theia
@@ -274,29 +272,29 @@ sdk.start_new_session(session_uuid)
 
 # in the camera's frame callback, once per frame:
 s = GazeSample()
-s.timestamp_ns = frame.utc_estimate_ns
-if frame.gaze_valid:
-    s.optical_axis_left_x, s.optical_axis_left_y, s.optical_axis_left_z = frame.gaze_vector
-s.left_eye_status = 2 if frame.pupil_valid else 0
+s.timestamp_ns = frame_time_ns                   # capture time, ns since the Unix epoch
+if gaze is not None:                             # (x, y, z), as the camera reports it
+    s.optical_axis_left_x, s.optical_axis_left_y, s.optical_axis_left_z = gaze
+s.left_eye_status = 2 if pupil_found else 0
 sdk.add_gaze_samples([s])
 
 # when the recording ends:
 sdk.stop_processing()
 ```
 
-For a right-eye camera, set the `_right_` gaze fields and `right_eye_status`
-instead. Results from Stasis have not yet been validated against recordings
-with calibrated gaze; contact support@harmoneyes.com before relying on them.
+For a camera on the right eye, set the `_right_` fields and `right_eye_status`
+instead. Results on this platform have not yet been validated against real
+recordings; contact support@harmoneyes.com before relying on them.
 
-See [`examples/theia-stasis-streaming.py`](examples/theia-stasis-streaming.py),
-which replays an eye-coordinates export as if it were live.
+See [`examples/theia-eye-camera-streaming.py`](examples/theia-eye-camera-streaming.py).
 
 ### Your own head-mounted tracker
 
 A tracker that calls you back with each frame can push its gaze with
 `add_gaze_samples()`. Use `platform="TobiiG3"` (head-mounted gaze), start a
 session, and push from that callback; there is no `start_realtime_data()` call.
-(A Stasis camera has its own platform; see [Stasis eye camera](#stasis-eye-camera).)
+(A camera that films one eye has its own platform; see
+[Head-mounted camera on one eye](#head-mounted-camera-on-one-eye).)
 
 ```python
 import harmoneyes_theia
@@ -348,7 +346,7 @@ if drowsiness:
     fatigue = {0: "Alert", 1: "Somewhat Fatigued", 2: "Fatigued"}[next(iter(drowsiness.values()))]
 attention = sdk.get_attention_style()
 readiness = sdk.get_mental_readiness()
-strain = sdk.get_eye_strain()   # Webcam and Stasis only
+strain = sdk.get_eye_strain()   # Webcam, and a camera on one eye, only
 print(f"Cognitive load: {cog_load} | Fatigue: {fatigue} | "
       f"Attention: {attention['label'] if attention else 'not yet'} | "
       f"Mental readiness: {readiness['label'] if readiness else 'not yet'} | "
@@ -361,7 +359,7 @@ print(f"Cognitive load: {cog_load} | Fatigue: {fatigue} | "
 | `get_fatigue_level()` | the newest fatigue (0=Alert, 1=Somewhat Fatigued, 2=Fatigued), then nothing until the next | about every 2 minutes |
 | `get_attention_style()` | `level` (1=Narrow … 5=Broad) and `label` | continuously |
 | `get_mental_readiness()` | `label` "High" or "Low", with the session's `low_percentage`, `moderate_percentage` and `high_percentage` of cognitive load. Readiness is High while low + moderate reach half; `set_mental_readiness_low_high_threshold()` moves the line. | continuously |
-| `get_eye_strain()` | `score`, 0–100, and whether the user is `in_break`, with the session's `on_seconds`, `break_count` and `longest_on_seconds`. Webcam and Stasis only. | every second |
+| `get_eye_strain()` | `score`, 0–100, and whether the user is `in_break`, with the session's `on_seconds`, `break_count` and `longest_on_seconds`. Webcam, and a camera on one eye, only. | every second |
 
 Each returns `None` until a result is available.
 
@@ -374,9 +372,9 @@ row away (`in_break`). Looking away for less than that pauses it. It is a
 timer on screen time, not a measure of the eye.
 
 - **Webcam:** time at the screen is time with the gaze on the screen.
-- **Stasis:** the camera sees the eye, not the screen, so time at the screen is
-  the time the camera tracks the eye with gaze near the wearer's usual
-  direction. Closing the eyes, taking the headset off, or looking well to the
+- **Head-mounted camera on one eye:** the camera sees the eye, not the
+  screen, so time at the screen is the time the camera tracks the eye with
+  gaze near the wearer's usual direction. Closing the eyes, taking the headset off, or looking well to the
   side for 20 seconds is a break. A look into the distance made by turning the
   head, with the eyes centred, still counts as screen time, so the SDK finds
   fewer breaks than the wearer took.
@@ -386,8 +384,8 @@ result.
 
 ### Upgrading from v2.2
 
-v2.3 adds eye strain (`get_eye_strain()`) and the Stasis eye camera
-(`platform="Stasis"`). Nothing you already call changes.
+v2.3 adds eye strain (`get_eye_strain()`) and a platform for head-mounted
+cameras on one eye. Nothing you already call changes.
 
 1. **Install the release,** with the version wherever you pin it
    (`requirements.txt`, `pyproject.toml`):
@@ -396,8 +394,8 @@ v2.3 adds eye strain (`get_eye_strain()`) and the Stasis eye camera
    pip install --upgrade "harmoneyes-theia @ git+https://github.com/harmoneyes/theia-python.git@v2.3.0"
    ```
 
-2. **Read eye strain** where you read the other results, on the Webcam or
-   Stasis platform:
+2. **Read eye strain** where you read the other results, on the Webcam
+   platform or with a head-mounted camera on one eye:
 
    ```python
    strain = sdk.get_eye_strain()
@@ -406,8 +404,8 @@ v2.3 adds eye strain (`get_eye_strain()`) and the Stasis eye camera
    ```
 
    It returns `None` on other platforms. [Eye strain](#eye-strain) explains
-   the score; for Stasis, keep sending every frame, with or without gaze, as
-   in [Stasis eye camera](#stasis-eye-camera).
+   the score. With a camera on one eye, keep sending every frame, with or
+   without gaze, as in [Head-mounted camera on one eye](#head-mounted-camera-on-one-eye).
 
 ## Running as a service
 

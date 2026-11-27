@@ -1,18 +1,23 @@
 """
-HarmonEyes Theia SDK Example: Stasis eye camera
+HarmonEyes Theia SDK Example: head-mounted camera on one eye
 
-Streams gaze from a Stasis head-mounted eye camera into the SDK as it arrives,
-with add_gaze_samples(), and every 10 recorded seconds prints one line with
-cognitive load, fatigue, attention style, mental readiness and eye strain.
+Streams gaze from a head-mounted camera that films one eye into the SDK as it
+arrives, with add_gaze_samples(), and every 10 recorded seconds prints one line
+with cognitive load, fatigue, attention style, mental readiness and eye
+strain.
 
 In your integration, call to_gaze_sample() and add_gaze_samples() from the
 callback that hands you each frame. So you can try this without the camera,
-the program replays a Stasis eye-coordinates export (the CSV the camera's
-software writes) at the pace it was recorded, or faster.
+the program replays a recording of frames, a CSV with one row per frame:
 
-From the export it reads utc_estimate_ns, eye, gaze_vector_x/y/z, gaze_valid
-and pupil_valid. Every other column is ignored. The README's "Stasis eye
-camera" section describes each of those fields.
+    timestamp_ns   capture time, nanoseconds since the Unix epoch (UTC)
+    eye            left or right
+    gaze_x/y/z     the calibrated gaze direction, a unit vector in the
+                   camera's frame (+x right, +y down, +z forward); empty when
+                   the frame has no gaze
+    pupil_found    true or false
+
+The README's "Head-mounted camera on one eye" section describes each field.
 
 Requirements
 ------------
@@ -20,7 +25,7 @@ Requirements
     (see the README, "Device Lease").
 
 Usage:
-  python theia-stasis-streaming.py eye_coordinates.csv [speed]
+  python theia-eye-camera-streaming.py frames.csv [speed]
 
 speed replays faster than recorded: at 10, ten minutes of gaze take one.
 """
@@ -31,6 +36,7 @@ import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass
+from typing import Optional, Tuple
 
 import harmoneyes_theia
 from harmoneyes_theia import GazeSample
@@ -43,58 +49,54 @@ FATIGUE_LABELS = {0: "Alert", 1: "Somewhat Fatigued", 2: "Fatigued"}
 
 
 @dataclass
-class StasisFrame:
-    """One frame of a Stasis export: the fields the SDK uses."""
-    utc_estimate_ns: int   # capture time, nanoseconds since the Unix epoch
+class Frame:
+    """One camera frame: the fields the SDK uses."""
+    timestamp_ns: int                            # capture time, nanoseconds since the Unix epoch
     right_eye: bool
-    gaze_valid: bool
-    gaze: tuple            # unit vector: +x right, +y down, +z forward
-    pupil_valid: bool      # the camera found the pupil
+    gaze: Optional[Tuple[float, float, float]]   # unit vector, +y down; None when there is none
+    pupil_found: bool
 
 
-def to_gaze_sample(frame: StasisFrame) -> GazeSample:
-    """The sample add_gaze_samples() takes, for one Stasis frame.
+def to_gaze_sample(frame: Frame) -> GazeSample:
+    """The sample add_gaze_samples() takes, for one frame.
 
-    platform="Stasis" reads the timestamp, the tracked eye's gaze direction as
-    the camera reports it (+y down), and that eye's status: 2 when the camera
-    found the pupil, 0 when it lost it, which is how blinks are found. The
-    other eye stays at its "not tracked" default. A frame with no valid gaze is
-    still sent: its timestamp tells the SDK the eye was lost then, rather than
-    that the stream paused.
+    The SDK reads the timestamp, the eye's gaze direction as the camera
+    reports it (+y down), and that eye's status: 2 when the camera found the
+    pupil, 0 when it lost it, which is how blinks are found. The other eye
+    stays at its "not tracked" default. A frame with no gaze is still sent:
+    its timestamp tells the SDK the eye was lost then, rather than that the
+    stream paused.
     """
     s = GazeSample()
-    s.timestamp_ns = frame.utc_estimate_ns
-    status = 2 if frame.pupil_valid else 0
+    s.timestamp_ns = frame.timestamp_ns
+    status = 2 if frame.pupil_found else 0
     if frame.right_eye:
         s.right_eye_status = status
-        if frame.gaze_valid:
+        if frame.gaze is not None:
             s.optical_axis_right_x, s.optical_axis_right_y, s.optical_axis_right_z = frame.gaze
     else:
         s.left_eye_status = status
-        if frame.gaze_valid:
+        if frame.gaze is not None:
             s.optical_axis_left_x, s.optical_axis_left_y, s.optical_axis_left_z = frame.gaze
     return s
 
 
-def read_export(path: str) -> list:
-    """The frames of a Stasis eye-coordinates export, in file order."""
+def read_frames(path: str) -> list:
+    """The frames of a recording, in file order."""
     frames = []
     with open(path, newline="") as f:
         reader = csv.DictReader(f)
-        needed = {"utc_estimate_ns", "eye", "gaze_vector_x", "gaze_vector_y", "gaze_vector_z",
-                  "gaze_valid", "pupil_valid"}
+        needed = {"timestamp_ns", "eye", "gaze_x", "gaze_y", "gaze_z", "pupil_found"}
         missing = needed - set(reader.fieldnames or [])
         if missing:
             sys.exit(f"{path} has no {', '.join(sorted(missing))} column")
         for row in reader:
-            gaze = (row["gaze_vector_x"], row["gaze_vector_y"], row["gaze_vector_z"])
-            gaze_valid = row["gaze_valid"] == "true" and all(gaze)
-            frames.append(StasisFrame(
-                utc_estimate_ns=int(row["utc_estimate_ns"]),
+            cells = (row["gaze_x"], row["gaze_y"], row["gaze_z"])
+            frames.append(Frame(
+                timestamp_ns=int(row["timestamp_ns"]),
                 right_eye=row["eye"] == "right",
-                gaze_valid=gaze_valid,
-                gaze=tuple(float(v) for v in gaze) if gaze_valid else (0.0, 0.0, 0.0),
-                pupil_valid=row["pupil_valid"] == "true",
+                gaze=tuple(float(v) for v in cells) if all(cells) else None,
+                pupil_found=row["pupil_found"] == "true",
             ))
     if len(frames) < 2:
         sys.exit(f"{path} has no frames")
@@ -123,8 +125,8 @@ def results_line(sdk, recorded_s: float, cog_load: str, fatigue: str) -> str:
 
 def main():
     if len(sys.argv) not in (2, 3):
-        sys.exit(f"usage: {sys.argv[0]} eye_coordinates.csv [speed]")
-    recording = read_export(sys.argv[1])
+        sys.exit(f"usage: {sys.argv[0]} frames.csv [speed]")
+    recording = read_frames(sys.argv[1])
     speed = float(sys.argv[2]) if len(sys.argv) == 3 else 1.0
     if not speed > 0:
         sys.exit("speed must be above 0")
@@ -133,6 +135,7 @@ def main():
         # Each machine registers under a hash of its OS machine ID. Units
         # flashed from one disk image can share that ID, and containers usually
         # have none; give each its own with lease_device_identifier="<serial>".
+        # "Stasis" is the platform for a head-mounted camera on one eye.
         sdk = harmoneyes_theia.TheiaSDK(platform="Stasis")
     except harmoneyes_theia.LeaseVerificationError as e:
         sys.exit(
@@ -143,8 +146,8 @@ def main():
 
     sdk.start_new_session(str(uuid.uuid4()))
 
-    first_ns = recording[0].utc_estimate_ns
-    total_s = (recording[-1].utc_estimate_ns - first_ns) / 1e9
+    first_ns = recording[0].timestamp_ns
+    total_s = (recording[-1].timestamp_ns - first_ns) / 1e9
     print(f"Streaming {total_s:.0f} s of gaze ({len(recording)} frames) at {speed:g}x")
 
     # get_cog_load_levels() and get_fatigue_level() hand over each result once,
@@ -156,7 +159,7 @@ def main():
     try:
         # In place of the camera's frame callback: send each frame when it is due.
         for frame in recording:
-            recorded_s = (frame.utc_estimate_ns - first_ns) / 1e9
+            recorded_s = (frame.timestamp_ns - first_ns) / 1e9
             delay = start + recorded_s / speed - time.monotonic()
             if delay > 0:
                 time.sleep(delay)
@@ -178,7 +181,7 @@ def main():
     except KeyboardInterrupt:
         print("\n[TheiaSDK] Interrupted")
     finally:
-        print(results_line(sdk, (recording[-1].utc_estimate_ns - first_ns) / 1e9,
+        print(results_line(sdk, (recording[-1].timestamp_ns - first_ns) / 1e9,
                            cog_load_now, fatigue_now))
         strain = sdk.get_eye_strain()
         sdk.stop_processing()
