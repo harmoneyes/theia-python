@@ -384,6 +384,31 @@ timer on screen time, not a measure of the eye.
 `get_eye_strain()` can be read as often as you like; it does not clear the
 result.
 
+### Upgrading from v2.2
+
+v2.3 adds eye strain (`get_eye_strain()`) and the Stasis eye camera
+(`platform="Stasis"`). Nothing you already call changes.
+
+1. **Install the release,** with the version wherever you pin it
+   (`requirements.txt`, `pyproject.toml`):
+
+   ```bash
+   pip install --upgrade "harmoneyes-theia @ git+https://github.com/harmoneyes/theia-python.git@v2.3.0"
+   ```
+
+2. **Read eye strain** where you read the other results, on the Webcam or
+   Stasis platform:
+
+   ```python
+   strain = sdk.get_eye_strain()
+   if strain:
+       print(f"Eye strain: {strain['score']:.0f}/100", "(on a break)" if strain["in_break"] else "")
+   ```
+
+   It returns `None` on other platforms. [Eye strain](#eye-strain) explains
+   the score; for Stasis, keep sending every frame, with or without gaze, as
+   in [Stasis eye camera](#stasis-eye-camera).
+
 ## Running as a service
 
 An app running as a service (systemd, a Windows service) may have no home
