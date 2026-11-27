@@ -249,11 +249,54 @@ configuration is needed; to point at a different signing server, set
 
 See [`examples/theia-webcam-streaming.py`](examples/theia-webcam-streaming.py).
 
+### Stasis eye camera
+
+The Stasis head-mounted eye camera has its own platform, `platform="Stasis"`.
+Push one sample for every camera frame, in time order, from the camera's frame
+callback; there is no `start_realtime_data()` call. Its settings assume 60
+frames a second, one eye per camera.
+
+| | In the Stasis eye-coordinates export | In the SDK (`GazeSample`) | Notes |
+|---|---|---|---|
+| **Capture time** | `utc_estimate_ns` | `timestamp_ns` | Required. Nanoseconds since the Unix epoch, in UTC. |
+| **Which eye** | `eye`: `left` or `right` | the `_left_` or `_right_` fields | Required. |
+| **Gaze direction** | `gaze_vector_x`, `_y`, `_z` | `optical_axis_left_x`, `_y`, `_z` | Required. The calibrated gaze, as a unit vector in the camera's frame (+x right, +y **down**, +z forward), as the camera reports it; the SDK converts it. |
+| **Gaze valid** | `gaze_valid` | leave the gaze at `(0, 0, 0)` when there is none | Required. Still send the frame: it tells the SDK the eye was lost then. |
+| **Pupil found** | `pupil_valid` | `left_eye_status`: `2` found, `0` lost | Needed for reliable blinks. |
+| **Pupil diameter** | not in the export | `pupil_diameter_left`, in millimetres | Optional. |
+
+```python
+import harmoneyes_theia
+from harmoneyes_theia import GazeSample
+
+sdk = harmoneyes_theia.TheiaSDK(platform="Stasis")
+sdk.start_new_session(session_uuid)
+
+# in the camera's frame callback, once per frame:
+s = GazeSample()
+s.timestamp_ns = frame.utc_estimate_ns
+if frame.gaze_valid:
+    s.optical_axis_left_x, s.optical_axis_left_y, s.optical_axis_left_z = frame.gaze_vector
+s.left_eye_status = 2 if frame.pupil_valid else 0
+sdk.add_gaze_samples([s])
+
+# when the recording ends:
+sdk.stop_processing()
+```
+
+For a right-eye camera, set the `_right_` gaze fields and `right_eye_status`
+instead. Results from Stasis have not yet been validated against recordings
+with calibrated gaze; contact support@harmoneyes.com before relying on them.
+
+See [`examples/theia-stasis-streaming.py`](examples/theia-stasis-streaming.py),
+which replays an eye-coordinates export as if it were live.
+
 ### Your own head-mounted tracker
 
 A tracker that calls you back with each frame can push its gaze with
 `add_gaze_samples()`. Use `platform="TobiiG3"` (head-mounted gaze), start a
 session, and push from that callback; there is no `start_realtime_data()` call.
+(A Stasis camera has its own platform; see [Stasis eye camera](#stasis-eye-camera).)
 
 ```python
 import harmoneyes_theia
@@ -305,9 +348,11 @@ if drowsiness:
     fatigue = {0: "Alert", 1: "Somewhat Fatigued", 2: "Fatigued"}[next(iter(drowsiness.values()))]
 attention = sdk.get_attention_style()
 readiness = sdk.get_mental_readiness()
+strain = sdk.get_eye_strain()   # Webcam and Stasis only
 print(f"Cognitive load: {cog_load} | Fatigue: {fatigue} | "
       f"Attention: {attention['label'] if attention else 'not yet'} | "
-      f"Mental readiness: {readiness['label'] if readiness else 'not yet'}")
+      f"Mental readiness: {readiness['label'] if readiness else 'not yet'} | "
+      f"Eye strain: {round(strain['score']) if strain else 'not yet'}")
 ```
 
 | Call | Returns | Updates |
@@ -316,8 +361,28 @@ print(f"Cognitive load: {cog_load} | Fatigue: {fatigue} | "
 | `get_fatigue_level()` | the newest fatigue (0=Alert, 1=Somewhat Fatigued, 2=Fatigued), then nothing until the next | about every 2 minutes |
 | `get_attention_style()` | `level` (1=Narrow … 5=Broad) and `label` | continuously |
 | `get_mental_readiness()` | `label` "High" or "Low", with the session's `low_percentage`, `moderate_percentage` and `high_percentage` of cognitive load. Readiness is High while low + moderate reach half; `set_mental_readiness_low_high_threshold()` moves the line. | continuously |
+| `get_eye_strain()` | `score`, 0–100, and whether the user is `in_break`, with the session's `on_seconds`, `break_count` and `longest_on_seconds`. Webcam and Stasis only. | every second |
 
 Each returns `None` until a result is available.
+
+### Eye strain
+
+Eye strain follows the 20-20-20 rule: every 20 minutes, look 20 feet away for
+20 seconds. The score rises from 0 to 100 over 20 minutes at the screen
+(`on_seconds_since_break`) and goes back to 0 after a break, 20 seconds in a
+row away (`in_break`). Looking away for less than that pauses it. It is a
+timer on screen time, not a measure of the eye.
+
+- **Webcam:** time at the screen is time with the gaze on the screen.
+- **Stasis:** the camera sees the eye, not the screen, so time at the screen is
+  the time the camera tracks the eye with gaze near the wearer's usual
+  direction. Closing the eyes, taking the headset off, or looking well to the
+  side for 20 seconds is a break. A look into the distance made by turning the
+  head, with the eyes centred, still counts as screen time, so the SDK finds
+  fewer breaks than the wearer took.
+
+`get_eye_strain()` can be read as often as you like; it does not clear the
+result.
 
 ## Running as a service
 
